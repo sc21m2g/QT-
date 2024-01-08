@@ -28,3 +28,7 @@ In the accompanying files, “.pro文件解释.txt” is my learning notes on th
 The rest of the files are mostly project files created by me, which include the application of various knowledge points.
 
 Later, there will be a completed project of a legal affairs system, which involves the collaborative operation between Qt and the database. Also, I am currently learning to use OpenCV in Qt, trying to create a basic face recognition application.
+
+In these days, I have completed three different levels face_ai work: basic face detection, face recognition matching, generating face recognition library through face recognition learing.
+
+But now I also find that this face ai work has a lot of problems. For example, I have used different face model: .onnx and .xml, so, the face recognition library can be used in .onnx model as the work generates .xml flie.
