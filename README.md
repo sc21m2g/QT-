@@ -4,47 +4,117 @@
 其余文件基本上都是我创建的项目文件，其中包含各知识点的应用。
 后面将会有一个我已完成的律师事务系统项目，其中包含了qt和数据库之间的协同运行。
 还有目前我正在学习的opencv在Qt上的使用，在尝试做一个基本的人脸识别。
+// memory_consumption.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-void consume_memory(size_t mb) {
-    size_t size = mb * 1024 * 1024; // 计算需要分配的字节数
-    char *data = (char *)malloc(size);
-    if (data == NULL) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
-    }
-
-    // 初始化内存以确保它被物理分配
-    memset(data, 0, size);
-
-    // 无限循环，持续使用内存
-    while (1) {
-        for (size_t i = 0; i < size; i++) {
-            data[i] = (char)(i % 256); // 用一些数据填充内存
-        }
-        sleep(1); // 暂停 1 秒
-    }
-
-    // 释放内存
-    free(data);
-}
+#include "memory_management.h"
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <MB>\n", argv[0]);
+        printf("Usage: %s <megabytes>\n", argv[0]);
         return 1;
     }
 
-    size_t mb = (size_t)atol(argv[1]);
-    if (mb == 0) {
-        fprintf(stderr, "Invalid memory size\n");
+    long megabytes = atol(argv[1]);
+    if (megabytes <= 0) {
+        printf("Invalid megabyte value: %ld\n", megabytes);
         return 1;
     }
 
-    consume_memory(mb);
+    long bytes = megabytes * 1024 * 1024;
+    int *array = (int *)custom_malloc(bytes);
+    if (array == NULL) {
+        printf("Memory allocation failed\n");
+        return 1;
+    }
 
+    printf("Allocated %ld MB of memory\n", megabytes);
+
+    // 模拟内存消耗
+    while (1) {
+        for (long i = 0; i < bytes / sizeof(int); i++) {
+            array[i] = i;
+        }
+        sleep(1);
+    }
+
+    custom_free(array);
     return 0;
+}
+
+
+#ifndef MEMORY_MANAGEMENT_H
+#define MEMORY_MANAGEMENT_H
+
+void *custom_malloc(size_t size);
+void custom_free(void *ptr);
+void print_memory_stats();
+
+#endif // MEMORY_MANAGEMENT_H
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "memory_management.h"
+
+typedef struct MemoryBlock {
+    void *ptr;
+    size_t size;
+} MemoryBlock;
+
+static MemoryBlock *memory_blocks = NULL;
+static int num_blocks = 0;
+static int num_allocated = 0;
+static int num_freed = 0;
+
+void *custom_malloc(size_t size) {
+    void *ptr = malloc(size);
+    if (ptr == NULL) {
+        return NULL;
+    }
+
+    memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
+    if (memory_blocks == NULL) {
+        free(ptr);
+        return NULL;
+    }
+
+    memory_blocks[num_blocks].ptr = ptr;
+    memory_blocks[num_blocks].size = size;
+    num_blocks++;
+    num_allocated++;
+
+    return ptr;
+}
+
+void custom_free(void *ptr) {
+    for (int i = 0; i < num_blocks; i++) {
+        if (memory_blocks[i].ptr == ptr) {
+            free(ptr);
+            memory_blocks[i].ptr = NULL;
+            num_freed++;
+            num_blocks--;
+
+            // 重新排列内存块数组
+            for (int j = i; j < num_blocks; j++) {
+                memory_blocks[j] = memory_blocks[j + 1];
+            }
+
+            memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
+            if (memory_blocks == NULL) {
+                printf("Failed to realloc memory_blocks\n");
+            }
+
+            return;
+        }
+    }
+
+    printf("Pointer not found in memory blocks\n");
+}
+
+void print_memory_stats() {
+    printf("Total blocks: %d, Allocated: %d, Freed: %d\n", num_blocks, num_allocated, num_freed);
 }
