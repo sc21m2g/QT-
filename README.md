@@ -100,6 +100,15 @@ static int num_blocks = 0;
 static int num_allocated = 0;
 static int num_freed = 0;
 
+int find_memory_block(void *ptr) {
+    for (int i = 0; i < num_blocks; i++) {
+        if (memory_blocks[i].ptr == ptr) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 void *custom_malloc(size_t size) {
     void *ptr = malloc(size);
     if (ptr == NULL) {
@@ -121,28 +130,26 @@ void *custom_malloc(size_t size) {
 }
 
 void custom_free(void *ptr) {
-    for (int i = 0; i < num_blocks; i++) {
-        if (memory_blocks[i].ptr == ptr) {
-            free(ptr);
-            memory_blocks[i].ptr = NULL;
-            num_freed++;
-            num_blocks--;
-
-            // 重新排列内存块数组
-            for (int j = i; j < num_blocks; j++) {
-                memory_blocks[j] = memory_blocks[j + 1];
-            }
-
-            memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
-            if (memory_blocks == NULL) {
-                printf("Failed to realloc memory_blocks\n");
-            }
-
-            return;
-        }
+    int index = find_memory_block(ptr);
+    if (index == -1) {
+        printf("Pointer not found in memory blocks\n");
+        return;
     }
 
-    printf("Pointer not found in memory blocks\n");
+    free(ptr);
+    memory_blocks[index].ptr = NULL;
+    num_freed++;
+
+    // 重新排列内存块数组
+    for (int j = index; j < num_blocks - 1; j++) {
+        memory_blocks[j] = memory_blocks[j + 1];
+    }
+
+    num_blocks--;
+    memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
+    if (memory_blocks == NULL) {
+        printf("Failed to realloc memory_blocks\n");
+    }
 }
 
 void print_memory_stats() {
