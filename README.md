@@ -74,14 +74,18 @@ static int num_allocated = 0;
 static int num_freed = 0;
 
 void *custom_malloc(size_t size) {
+    printf("custom_malloc called with size = %zu\n", size);
+
     void *ptr = malloc(size);
     if (ptr == NULL) {
+        printf("Failed to allocate %zu bytes of memory\n", size);
         return NULL;
     }
 
     memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
     if (memory_blocks == NULL) {
         free(ptr);
+        printf("Failed to realloc memory_blocks for %zu bytes\n", size);
         return NULL;
     }
 
@@ -90,25 +94,44 @@ void *custom_malloc(size_t size) {
     num_blocks++;
     num_allocated++;
 
+    printf("Memory blocks after allocation:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+    }
+
     return ptr;
 }
 
 void custom_free(void *ptr) {
+    printf("custom_free called with ptr = %p\n", ptr);
+
+    if (ptr == NULL) {
+        printf("Pointer is NULL, no memory to free\n");
+        return;
+    }
+
     for (int i = 0; i < num_blocks; i++) {
         if (memory_blocks[i].ptr == ptr) {
             free(ptr);
             memory_blocks[i].ptr = NULL;
+            memory_blocks[i].size = 0;
             num_freed++;
             num_blocks--;
 
             // 重新排列内存块数组
-            for (int j = i; j < num_blocks; j++) {
-                memory_blocks[j] = memory_blocks[j + 1];
+            if (num_blocks > 0) {
+                memmove(&memory_blocks[i], &memory_blocks[i + 1], (num_blocks - i) * sizeof(MemoryBlock));
             }
 
+            // 重新分配内存块数组
             memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
-            if (memory_blocks == NULL) {
+            if (memory_blocks == NULL && num_blocks > 0) {
                 printf("Failed to realloc memory_blocks\n");
+            }
+
+            printf("Memory blocks after free:\n");
+            for (int i = 0; i < num_blocks; i++) {
+                printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
             }
 
             return;
