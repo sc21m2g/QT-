@@ -7,165 +7,117 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
+#include <unistd.h>
+#include <signal.h>
 #include "memory_management.h"
 
-#define MEMORY_SIZE 1024 * 1024  // 1MB memory pool
-static char memory_pool[MEMORY_SIZE];
-static char *free_list = memory_pool;
+int *array = NULL;  // 将数组声明为全局变量
+long megabytes = 0;
 
-// Structure to keep track of allocated memory blocks
-typedef struct Block {
-    size_t size;
-    struct Block *next;
-    int is_free;
-} Block;
+void handle_sigint(int sig) {
+    if (array != NULL) {
+        custom_free(array);
+        printf("Memory freed\n");
+    }
+    print_memory_stats();
+    exit(0);
+}
 
-static Block *head = NULL;
-
-// my_malloc function
-void *my_malloc(size_t size) {
-    if (size == 0) {
-        return NULL;
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s <megabytes>\n", argv[0]);
+        return 1;
     }
 
-    // Align the size to the nearest multiple of 16
-    size_t aligned_size = (size + 15) & ~15;
+    megabytes = atol(argv[1]);
+    if (megabytes <= 0) {
+        printf("Invalid megabyte value: %ld\n", megabytes);
+        return 1;
+    }
 
-    // Find a suitable free block
-    Block *current = head;
-    Block *prev = NULL;
-    while (current != NULL) {
-        if (current->is_free && current->size >= aligned_size) {
-            // Found a suitable block
-            if (current->size - aligned_size >= sizeof(Block) + 15) {
-                // Split the block
-                Block *new_block = (Block *)((char *)current + sizeof(Block) + aligned_size);
-                new_block->size = current->size - aligned_size - sizeof(Block);
-                new_block->is_free = 1;
-                new_block->next = current->next;
-                current->size = aligned_size;
-                current->next = new_block;
-            }
-            current->is_free = 0;
-            return (void *)((char *)current + sizeof(Block));
+    long bytes = megabytes * 1024 * 1024;
+    array = (int *)custom_malloc(bytes);
+    if (array == NULL) {
+        printf("Memory allocation failed\n");
+        return 1;
+    }
+
+    printf("Allocated %ld MB of memory\n", megabytes);
+
+    // 注册信号处理函数
+    signal(SIGINT, handle_sigint);
+
+    // 模拟内存消耗
+    while (1) {
+        for (long i = 0; i < bytes / sizeof(int); i++) {
+            array[i] = i;
         }
-        prev = current;
-        current = current->next;
+        sleep(1);
     }
 
-    // No suitable block found, allocate a new block from the free list
-    if ((char *)free_list + aligned_size + sizeof(Block) <= memory_pool + MEMORY_SIZE) {
-        Block *new_block = (Block *)free_list;
-        new_block->size = aligned_size;
-        new_block->is_free = 0;
-        new_block->next = NULL;
-        if (head == NULL) {
-            head = new_block;
-        } else {
-            prev->next = new_block;
-        }
-        free_list += aligned_size + sizeof(Block);
-        return (void *)((char *)new_block + sizeof(Block));
-    }
-
-    // Out of memory
-    return NULL;
+    return 0;
 }
-
-// my_free function
-void my_free(void *ptr) {
-    if (ptr == NULL) {
-        return;
-    }
-
-    Block *block = (Block *)((char *)ptr - sizeof(Block));
-    block->is_free = 1;
-
-    // Merge with previous block if it is free
-    Block *prev = head;
-    while (prev != NULL && prev->next != block) {
-        prev = prev->next;
-    }
-    if (prev != NULL && prev->is_free) {
-        prev->size += block->size + sizeof(Block);
-        prev->next = block->next;
-        block = prev;
-    }
-
-    // Merge with next block if it is free
-    if (block->next != NULL && block->next->is_free) {
-        block->size += block->next->size + sizeof(Block);
-        block->next = block->next->next;
-    }
-}
-
-// Function to print memory status
-void print_memory_status() {
-    Block *current = head;
-    while (current != NULL) {
-        printf("Block at %p: size = %zu, is_free = %d\n", current, current->size, current->is_free);
-        current = current->next;
-    }
-}
-
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include "memory_management.h"
 
-int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <MB>\n", argv[0]);
-        return 1;
+typedef struct MemoryBlock {
+    void *ptr;
+    size_t size;
+} MemoryBlock;
+
+static MemoryBlock *memory_blocks = NULL;
+static int num_blocks = 0;
+static int num_allocated = 0;
+static int num_freed = 0;
+
+void *custom_malloc(size_t size) {
+    void *ptr = malloc(size);
+    if (ptr == NULL) {
+        return NULL;
     }
 
-    size_t mb = atoi(argv[1]);
-    size_t size = mb * 1024 * 1024;
-
-    // Allocate an int array
-    int *int_array = (int *)my_malloc(size / 2);
-    if (int_array != NULL) {
-        printf("Allocated int array at %p with size %zu\n", int_array, size / 2);
-        print_memory_status();
-    } else {
-        printf("Failed to allocate int array\n");
+    memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
+    if (memory_blocks == NULL) {
+        free(ptr);
+        return NULL;
     }
 
-    // Allocate a char array
-    char *char_array = (char *)my_malloc(size / 4);
-    if (char_array != NULL) {
-        printf("Allocated char array at %p with size %zu\n", char_array, size / 4);
-        print_memory_status();
-    } else {
-        printf("Failed to allocate char array\n");
-    }
+    memory_blocks[num_blocks].ptr = ptr;
+    memory_blocks[num_blocks].size = size;
+    num_blocks++;
+    num_allocated++;
 
-    // Free the int array
-    my_free(int_array);
-    printf("Freed int array at %p\n", int_array);
-    print_memory_status();
+    return ptr;
+}
 
-    // Allocate another int array
-    int *int_array2 = (int *)my_malloc(size / 2);
-    if (int_array2 != NULL) {
-        printf("Allocated another int array at %p with size %zu\n", int_array2, size / 2);
-        print_memory_status();
-    } else {
-        printf("Failed to allocate another int array\n");
-    }
+void custom_free(void *ptr) {
+    for (int i = 0; i < num_blocks; i++) {
+        if (memory_blocks[i].ptr == ptr) {
+            free(ptr);
+            memory_blocks[i].ptr = NULL;
+            num_freed++;
+            num_blocks--;
 
-    // Constantly stream through the array
-    for (int i = 0; i < 100000000; i++) {
-        if (int_array2 != NULL) {
-            int_array2[i % (size / 2 / sizeof(int))] = i;
+            // 重新排列内存块数组
+            for (int j = i; j < num_blocks; j++) {
+                memory_blocks[j] = memory_blocks[j + 1];
+            }
+
+            memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
+            if (memory_blocks == NULL) {
+                printf("Failed to realloc memory_blocks\n");
+            }
+
+            return;
         }
-        if (char_array != NULL) {
-            char_array[i % (size / 4)] = 'A';
-        }
     }
 
-    return 0;
+    printf("Pointer not found in memory blocks\n");
+}
+
+void print_memory_stats() {
+    printf("Total blocks: %d, Allocated: %d, Freed: %d\n", num_blocks, num_allocated, num_freed);
 }
