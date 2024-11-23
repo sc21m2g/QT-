@@ -38,9 +38,39 @@ int main(int argc, char *argv[]) {
             array[i] = i;
         }
         sleep(1);
+
+        // 读取用户输入
+        char input[100];
+        if (fgets(input, sizeof(input), stdin) != NULL) {
+            input[strcspn(input, "\n")] = 0;  // 去掉换行符
+
+            if (strcmp(input, "free") == 0) {
+                custom_free(array);
+                array = NULL;
+                printf("Memory freed\n");
+            } else if (strcmp(input, "stats") == 0) {
+                print_memory_stats();
+            } else if (sscanf(input, "malloc %ld", &megabytes) == 1) {
+                if (megabytes <= 0) {
+                    printf("Invalid megabyte value: %ld\n", megabytes);
+                    continue;
+                }
+                bytes = megabytes * 1024 * 1024;
+                if (array != NULL) {
+                    custom_free(array);
+                }
+                array = (int *)custom_malloc(bytes);
+                if (array == NULL) {
+                    printf("Memory allocation failed\n");
+                } else {
+                    printf("Allocated %ld MB of memory\n", megabytes);
+                }
+            } else {
+                printf("Unknown command: %s\n", input);
+            }
+        }
     }
 
-    custom_free(array);
     return 0;
 }
 
