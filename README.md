@@ -112,20 +112,27 @@ int find_memory_block(void *ptr) {
 void *custom_malloc(size_t size) {
     void *ptr = malloc(size);
     if (ptr == NULL) {
+        printf("Failed to allocate %zu bytes of memory\n", size);
         return NULL;
     }
 
-    memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
+    void *new_memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
     if (memory_blocks == NULL) {
         free(ptr);
+        printf("Failed to realloc memory_blocks for %zu bytes\n", size);
         return NULL;
     }
+    memory_blocks = new_memory_blocks;
 
     memory_blocks[num_blocks].ptr = ptr;
     memory_blocks[num_blocks].size = size;
     num_blocks++;
     num_allocated++;
 
+    printf("Memory blocks after allocation:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+    }
     return ptr;
 }
 
@@ -146,9 +153,16 @@ void custom_free(void *ptr) {
     }
 
     num_blocks--;
-    memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
-    if (memory_blocks == NULL) {
+    void *new_memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
+    if (new_memory_blocks == NULL && num_blocks > 0) {
         printf("Failed to realloc memory_blocks\n");
+        return;
+    }
+    memory_blocks = new_memory_blocks;
+
+    printf("Memory blocks after free:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
     }
 }
 
