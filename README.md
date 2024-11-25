@@ -15,45 +15,73 @@ int *array = NULL;  // 将数组声明为全局变量
 long megabytes = 0;
 
 void handle_sigint(int sig) {
-    if (array != NULL) {
-        custom_free(array);
-        printf("Memory freed\n");
+    printf("Signal %d received, freeing memory\n", sig);
+    for (int i = 0; i < num_blocks; i++) {
+        custom_free(memory_blocks[i].ptr);
     }
+    print_memory_blocks();
     print_memory_stats();
+    printf("Memory freed\n");
     exit(0);
 }
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usage: %s <megabytes>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <megabytes>\n", argv[0]);
         return 1;
     }
 
-    megabytes = atol(argv[1]);
-    if (megabytes <= 0) {
-        printf("Invalid megabyte value: %ld\n", megabytes);
-        return 1;
-    }
-
+    long megabytes = atol(argv[1]);
     long bytes = megabytes * 1024 * 1024;
-    array = (int *)custom_malloc(bytes);
-    if (array == NULL) {
-        printf("Memory allocation failed\n");
-        return 1;
-    }
 
+    void *array = custom_malloc(bytes);
     printf("Allocated %ld MB of memory\n", megabytes);
+    print_memory_blocks();
 
-    // 注册信号处理函数
     signal(SIGINT, handle_sigint);
 
-    // 模拟内存消耗
+    int *ptr = (int *)array;
+    int i = 0;
     while (1) {
-        for (long i = 0; i < bytes / sizeof(int); i++) {
-            array[i] = i;
+        ptr[i] = i;
+        i++;
+        if (i % (1024 * 1024) == 0) {
+            printf("Writing to memory... %d MB\n", i / (1024 * 1024));
         }
         sleep(1);
     }
+
+    // 交互部分
+    while (1) {
+        char input[100];
+        printf("Do you want to allocate more memory? (yes/no): ");
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
+        }
+        input[strcspn(input, "\n")] = '\0'; // 移除换行符
+
+        if (strcmp(input, "yes") == 0) {
+            printf("Enter the number of megabytes to allocate: ");
+            if (fgets(input, sizeof(input), stdin) == NULL) {
+                break;
+            }
+            long more_megabytes = atol(input);
+            if (more_megabytes <= 0) {
+                printf("Invalid input. Please enter a positive number.\n");
+                continue;
+            }
+            long more_bytes = more_megabytes * 1024 * 1024;
+            void *more_array = custom_malloc(more_bytes);
+            printf("Allocated %ld MB of memory\n", more_megabytes);
+            print_memory_blocks();
+        } else if (strcmp(input, "no") == 0) {
+            break;
+        } else {
+            printf("Invalid input. Please enter 'yes' or 'no'.\n");
+        }
+    }
+
+    handle_sigint(2); // 释放所有已分配的内存
 
     return 0;
 }
@@ -63,82 +91,49 @@ int main(int argc, char *argv[]) {
 #include <string.h>
 #include "memory_management.h"
 
-typedef struct MemoryBlock {
+#define MAX_BLOCKS 100
+
+typedef struct {
     void *ptr;
     size_t size;
 } MemoryBlock;
 
-static MemoryBlock *memory_blocks = NULL;
-static int num_blocks = 0;
-static int num_allocated = 0;
-static int num_freed = 0;
+MemoryBlock memory_blocks[MAX_BLOCKS];
+int num_blocks = 0;
+int num_allocated = 0;
+int num_freed = 0;
 
 void *custom_malloc(size_t size) {
     printf("custom_malloc called with size = %zu\n", size);
-
     void *ptr = malloc(size);
     if (ptr == NULL) {
-        printf("Failed to allocate %zu bytes of memory\n", size);
-        return NULL;
+        fprintf(stderr, "Error: Out of memory\n");
+        exit(1);
     }
-
-    memory_blocks = realloc(memory_blocks, (num_blocks + 1) * sizeof(MemoryBlock));
-    if (memory_blocks == NULL) {
-        free(ptr);
-        printf("Failed to realloc memory_blocks for %zu bytes\n", size);
-        return NULL;
-    }
-
-    memory_blocks[num_blocks].ptr = ptr;
-    memory_blocks[num_blocks].size = size;
-    num_blocks++;
+    MemoryBlock block = {ptr, size};
+    memory_blocks[num_blocks++] = block;
     num_allocated++;
-
-    printf("Memory blocks after allocation:\n");
-    for (int i = 0; i < num_blocks; i++) {
-        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
-    }
-
     return ptr;
 }
 
 void custom_free(void *ptr) {
     printf("custom_free called with ptr = %p\n", ptr);
-
-    if (ptr == NULL) {
-        printf("Pointer is NULL, no memory to free\n");
-        return;
-    }
-
     for (int i = 0; i < num_blocks; i++) {
         if (memory_blocks[i].ptr == ptr) {
             free(ptr);
-            memory_blocks[i].ptr = NULL;
-            memory_blocks[i].size = 0;
-            num_freed++;
+            memmove(&memory_blocks[i], &memory_blocks[i + 1], (num_blocks - i - 1) * sizeof(MemoryBlock));
             num_blocks--;
-
-            // 重新排列内存块数组
-            if (num_blocks > 0) {
-                memmove(&memory_blocks[i], &memory_blocks[i + 1], (num_blocks - i) * sizeof(MemoryBlock));
-            }
-
-            // 重新分配内存块数组
-            memory_blocks = realloc(memory_blocks, num_blocks * sizeof(MemoryBlock));
-            if (memory_blocks == NULL && num_blocks > 0) {
-                printf("Failed to realloc memory_blocks\n");
-            }
-
-            printf("Memory blocks after free:\n");
-            for (int i = 0; i < num_blocks; i++) {
-                printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
-            }
-
-            return;
+            num_freed++;
+            break;
         }
     }
+}
 
-    printf("Pointer not found in memory blocks\n");
+void print_memory_blocks() {
+    printf("Memory blocks:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+    }
 }
 
 void print_memory_stats() {
