@@ -4,15 +4,107 @@
 其余文件基本上都是我创建的项目文件，其中包含各知识点的应用。
 后面将会有一个我已完成的律师事务系统项目，其中包含了qt和数据库之间的协同运行。
 还有目前我正在学习的opencv在Qt上的使用，在尝试做一个基本的人脸识别。
+
+#ifndef MEMORY_MANAGEMENT_H
+#define MEMORY_MANAGEMENT_H
+
+#include <stddef.h>
+
+#define MAX_BLOCKS 100
+
+typedef struct {
+    void *ptr;
+    size_t size;
+} MemoryBlock;
+
+extern MemoryBlock memory_blocks[MAX_BLOCKS];
+extern int num_blocks;
+extern int num_allocated;
+extern int num_freed;
+
+void *custom_malloc(size_t size);
+void custom_free(void *ptr);
+void print_memory_blocks();
+void print_memory_stats();
+void handle_sigint(int sig);
+
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <signal.h>
 #include "memory_management.h"
 
-int *array = NULL;  // 将数组声明为全局变量
-long megabytes = 0;
+MemoryBlock memory_blocks[MAX_BLOCKS];
+int num_blocks = 0;
+int num_allocated = 0;
+int num_freed = 0;
+
+void *custom_malloc(size_t size) {
+    printf("custom_malloc called with size = %zu\n", size);
+
+    void *ptr = malloc(size);
+    if (ptr == NULL) {
+        printf("Failed to allocate %zu bytes of memory\n", size);
+        return NULL;
+    }
+
+    memory_blocks[num_blocks].ptr = ptr;
+    memory_blocks[num_blocks].size = size;
+    num_blocks++;
+    num_allocated++;
+
+    printf("Memory blocks after allocation:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+    }
+
+    return ptr;
+}
+
+void custom_free(void *ptr) {
+    printf("custom_free called with ptr = %p\n", ptr);
+
+    if (ptr == NULL) {
+        printf("Pointer is NULL, no memory to free\n");
+        return;
+    }
+
+    for (int i = 0; i < num_blocks; i++) {
+        if (memory_blocks[i].ptr == ptr) {
+            free(ptr);
+            memory_blocks[i].ptr = NULL;
+            memory_blocks[i].size = 0;
+            num_freed++;
+            num_blocks--;
+
+            // 重新排列内存块数组
+            if (num_blocks > 0) {
+                memmove(&memory_blocks[i], &memory_blocks[i + 1], (num_blocks - i) * sizeof(MemoryBlock));
+            }
+
+            printf("Memory blocks after free:\n");
+            for (int i = 0; i < num_blocks; i++) {
+                printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+            }
+
+            return;
+        }
+    }
+
+    printf("Pointer not found in memory blocks\n");
+}
+
+void print_memory_blocks() {
+    printf("Memory blocks:\n");
+    for (int i = 0; i < num_blocks; i++) {
+        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
+    }
+}
+
+void print_memory_stats() {
+    printf("Total blocks: %d, Allocated: %d, Freed: %d\n", num_blocks, num_allocated, num_freed);
+}
 
 void handle_sigint(int sig) {
     printf("Signal %d received, freeing memory\n", sig);
@@ -25,34 +117,48 @@ void handle_sigint(int sig) {
     exit(0);
 }
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include "memory_management.h"
+
+int *array = NULL;  // 将数组声明为全局变量
+long megabytes = 0;
+
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <megabytes>\n", argv[0]);
+        printf("Usage: %s <megabytes>\n", argv[0]);
         return 1;
     }
 
-    long megabytes = atol(argv[1]);
-    long bytes = megabytes * 1024 * 1024;
-
-    void *array = custom_malloc(bytes);
-    printf("Allocated %ld MB of memory\n", megabytes);
-    print_memory_blocks();
-
-    signal(SIGINT, handle_sigint);
-
-    int *ptr = (int *)array;
-    int i = 0;
-    while (1) {
-        ptr[i] = i;
-        i++;
-        if (i % (1024 * 1024) == 0) {
-            printf("Writing to memory... %d MB\n", i / (1024 * 1024));
-        }
-        sleep(1);
+    megabytes = atol(argv[1]);
+    if (megabytes <= 0) {
+        printf("Invalid megabyte value: %ld\n", megabytes);
+        return 1;
     }
 
-    // 交互部分
+    long bytes = megabytes * 1024 * 1024;
+    array = (int *)custom_malloc(bytes);
+    if (array == NULL) {
+        printf("Memory allocation failed\n");
+        return 1;
+    }
+
+    printf("Allocated %ld MB of memory\n", megabytes);
+
+    // 注册信号处理函数
+    signal(SIGINT, handle_sigint);
+
+    // 模拟内存消耗
     while (1) {
+        for (long i = 0; i < bytes / sizeof(int); i++) {
+            array[i] = i;
+        }
+        sleep(1);
+
+        // 交互部分
         char input[100];
         printf("Do you want to allocate more memory? (yes/no): ");
         if (fgets(input, sizeof(input), stdin) == NULL) {
@@ -71,9 +177,12 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             long more_bytes = more_megabytes * 1024 * 1024;
-            void *more_array = custom_malloc(more_bytes);
-            printf("Allocated %ld MB of memory\n", more_megabytes);
-            print_memory_blocks();
+            int *more_array = (int *)custom_malloc(more_bytes);
+            if (more_array == NULL) {
+                printf("Memory allocation failed\n");
+                continue;
+            }
+            printf("Allocated %ld MB of additional memory\n", more_megabytes);
         } else if (strcmp(input, "no") == 0) {
             break;
         } else {
@@ -84,58 +193,4 @@ int main(int argc, char *argv[]) {
     handle_sigint(2); // 释放所有已分配的内存
 
     return 0;
-}
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "memory_management.h"
-
-#define MAX_BLOCKS 100
-
-typedef struct {
-    void *ptr;
-    size_t size;
-} MemoryBlock;
-
-MemoryBlock memory_blocks[MAX_BLOCKS];
-int num_blocks = 0;
-int num_allocated = 0;
-int num_freed = 0;
-
-void *custom_malloc(size_t size) {
-    printf("custom_malloc called with size = %zu\n", size);
-    void *ptr = malloc(size);
-    if (ptr == NULL) {
-        fprintf(stderr, "Error: Out of memory\n");
-        exit(1);
-    }
-    MemoryBlock block = {ptr, size};
-    memory_blocks[num_blocks++] = block;
-    num_allocated++;
-    return ptr;
-}
-
-void custom_free(void *ptr) {
-    printf("custom_free called with ptr = %p\n", ptr);
-    for (int i = 0; i < num_blocks; i++) {
-        if (memory_blocks[i].ptr == ptr) {
-            free(ptr);
-            memmove(&memory_blocks[i], &memory_blocks[i + 1], (num_blocks - i - 1) * sizeof(MemoryBlock));
-            num_blocks--;
-            num_freed++;
-            break;
-        }
-    }
-}
-
-void print_memory_blocks() {
-    printf("Memory blocks:\n");
-    for (int i = 0; i < num_blocks; i++) {
-        printf("Block %d: ptr = %p, size = %zu\n", i, memory_blocks[i].ptr, memory_blocks[i].size);
-    }
-}
-
-void print_memory_stats() {
-    printf("Total blocks: %d, Allocated: %d, Freed: %d\n", num_blocks, num_allocated, num_freed);
 }
